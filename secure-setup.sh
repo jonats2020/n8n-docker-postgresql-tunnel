@@ -1,5 +1,41 @@
 #!/bin/bash
 
+# Load configuration from .env file
+if [ ! -f .env ]; then
+    echo "Error: .env file not found!"
+    echo "Please copy env.example to .env and configure your settings:"
+    echo "cp env.example .env"
+    echo "Then edit .env with your domain, email, and other settings."
+    exit 1
+fi
+
+# Source the .env file
+source .env
+
+# Validate required variables
+if [ -z "$DOMAIN" ] || [ -z "$SUBDOMAIN" ] || [ -z "$SSL_EMAIL" ] || [ -z "$DB_PASSWORD" ]; then
+    echo "Error: Missing required configuration in .env file!"
+    echo "Please ensure DOMAIN, SUBDOMAIN, SSL_EMAIL, and DB_PASSWORD are set."
+    exit 1
+fi
+
+# Set defaults for optional variables
+TIMEZONE=${TIMEZONE:-"Asia/Manila"}
+FULL_DOMAIN="${SUBDOMAIN}.${DOMAIN}"
+
+echo "Starting n8n setup with the following configuration:"
+echo "Domain: $FULL_DOMAIN"
+echo "SSL Email: $SSL_EMAIL"
+echo "Timezone: $TIMEZONE"
+echo "Database Password: [HIDDEN]"
+echo ""
+read -p "Continue with setup? (y/N): " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Setup cancelled."
+    exit 1
+fi
+
 # Update system
 apt-get update && apt-get upgrade -y
 
@@ -22,9 +58,12 @@ apt-get install -y nodejs
 echo "Configuring PostgreSQL..."
 sudo -u postgres psql -c "DROP DATABASE IF EXISTS n8n;"
 sudo -u postgres psql -c "DROP USER IF EXISTS n8n;"
-sudo -u postgres psql -c "CREATE USER n8n WITH PASSWORD 'n8n_secure_password';"
+sudo -u postgres psql -c "CREATE USER n8n WITH PASSWORD '$DB_PASSWORD';"
 sudo -u postgres psql -c "CREATE DATABASE n8n;"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE n8n TO n8n;"
+sudo -u postgres psql -c "ALTER USER n8n CREATEDB;"
+sudo -u postgres psql -c "ALTER DATABASE n8n OWNER TO n8n;"
+sudo -u postgres psql -d n8n -c "GRANT ALL ON SCHEMA public TO n8n;"
 echo "PostgreSQL configuration completed."
 
 # Install n8n globally
@@ -34,7 +73,7 @@ npm install -g n8n
 systemctl stop nginx
 
 # Get SSL certificate
-certbot certonly --standalone -d n8n.natsdevstudio.com --non-interactive --agree-tos --email natselayron@gmail.com
+certbot certonly --standalone -d $FULL_DOMAIN --non-interactive --agree-tos --email $SSL_EMAIL
 
 # Create n8n system service
 cat > /etc/systemd/system/n8n.service << EOL
@@ -46,19 +85,19 @@ After=network.target postgresql.service
 Type=simple
 User=root
 Environment=NODE_ENV=production
-Environment=N8N_HOST=n8n.natsdevstudio.com
+Environment=N8N_HOST=$FULL_DOMAIN
 Environment=N8N_PROTOCOL=https
-Environment=N8N_PORT=5678
+Environment=N8N_PORT=443
+Environment=N8N_SSL_CERT=/etc/letsencrypt/live/$FULL_DOMAIN/fullchain.pem
+Environment=N8N_SSL_KEY=/etc/letsencrypt/live/$FULL_DOMAIN/privkey.pem
 Environment=DB_TYPE=postgresdb
 Environment=DB_POSTGRESDB_HOST=localhost
 Environment=DB_POSTGRESDB_PORT=5432
 Environment=DB_POSTGRESDB_DATABASE=n8n
 Environment=DB_POSTGRESDB_USER=n8n
-Environment=DB_POSTGRESDB_PASSWORD=n8n_secure_password
-Environment=N8N_SSL_CERT=/etc/letsencrypt/live/n8n.natsdevstudio.com/fullchain.pem
-Environment=N8N_SSL_KEY=/etc/letsencrypt/live/n8n.natsdevstudio.com/privkey.pem
-Environment=GENERIC_TIMEZONE=Asia/Manila
-Environment=TZ=Asia/Manila
+Environment=DB_POSTGRESDB_PASSWORD=$DB_PASSWORD
+Environment=GENERIC_TIMEZONE=$TIMEZONE
+Environment=TZ=$TIMEZONE
 Environment=N8N_SECURE_COOKIE=true
 ExecStart=/usr/bin/n8n start
 Restart=always
@@ -67,66 +106,18 @@ Restart=always
 WantedBy=multi-user.target
 EOL
 
-# Configure Nginx
-cat > /etc/nginx/sites-available/n8n << EOL
-server {
-    listen 80;
-    listen [::]:80;
-    server_name n8n.natsdevstudio.com;
-    return 301 https://\$server_name\$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    server_name n8n.natsdevstudio.com;
-
-    ssl_certificate /etc/letsencrypt/live/n8n.natsdevstudio.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/n8n.natsdevstudio.com/privkey.pem;
-
-    # SSL configuration
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers on;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
-    ssl_session_timeout 1d;
-    ssl_session_cache shared:SSL:50m;
-    ssl_stapling on;
-    ssl_stapling_verify on;
-    add_header Strict-Transport-Security "max-age=31536000" always;
-
-    location / {
-        proxy_pass http://localhost:5678;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header Host \$host;
-        proxy_set_header Connection '';
-        proxy_http_version 1.1;
-        proxy_buffering off;
-        proxy_read_timeout 120s;
-        proxy_redirect off;
-        proxy_send_timeout 120s;
-        client_max_body_size 100M;
-    }
-}
-EOL
-
-# Enable n8n site and remove default
-ln -sf /etc/nginx/sites-available/n8n /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default
-
 # Enable and start services
 systemctl daemon-reload
 systemctl enable postgresql
 systemctl start postgresql
 systemctl enable n8n
 systemctl start n8n
-systemctl enable nginx
-systemctl start nginx
 
 # Print status
-echo "Setup completed! Please check https://n8n.natsdevstudio.com"
+echo "Setup completed! Please check https://$FULL_DOMAIN"
 echo "PostgreSQL is running on port 5432"
-echo "n8n is running on port 5678 (proxied through Nginx)"
+echo "n8n is running on port 443 with direct HTTPS"
 systemctl status n8n --no-pager
-systemctl status nginx --no-pager 
+echo ""
+echo "If you see any issues, check the logs with:"
+echo "journalctl -u n8n -f" 

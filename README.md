@@ -1,4 +1,4 @@
-# n8n Workflow Automation Setup
+# N8N (Node JS) + Namecheap + Hostinger VPS
 
 ![n8n Banner](https://img.5xcamp.us/i/eacda81d-496e-4d9c-ac0c-242081ce79d9.png)
 

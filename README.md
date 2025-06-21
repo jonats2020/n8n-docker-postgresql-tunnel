@@ -1,8 +1,23 @@
-# N8N (Node JS) + Namecheap DNS + Hostinger VPS
+# Budget DIY n8n Workflow Setup for ~$7/month Total Hosting Costs*
 
 ![n8n Banner](https://img.5xcamp.us/i/eacda81d-496e-4d9c-ac0c-242081ce79d9.png)
 
 This repository contains the setup configuration for deploying n8n (workflow automation tool) as a subdomain on a Namecheap domain using a Hostinger VPS.
+
+## 💰 Cost Breakdown (2025 Pricing)
+
+**Total Monthly Cost: ~$7/month***
+
+### Hostinger KVM 1 VPS
+- **Promotional**: ~$5-9/month (first 24 months)
+- **Regular**: ~$9-10/month (renewal rate)
+- Specifications: 1 vCPU, 4GB RAM, 50GB NVMe, 4TB bandwidth
+
+### Namecheap Domain (.com)
+- **First Year**: $6.49 (~$0.54/month)
+- **Renewal**: $16.88/year (~$1.41/month)
+
+**Pricing varies significantly based on promotional offers, billing cycles, and renewal rates. The $7/month estimate assumes promotional pricing. Always check current provider websites for exact pricing.*
 
 ## Overview
 
@@ -25,7 +40,7 @@ This implementation provides a production-ready n8n instance with:
 
 ### 1. VPS Configuration
 - **Provider**: Hostinger
-- **Plan**: KVM 1 (₱549/month)
+- **Plan**: KVM 1 (~$5-10/month depending on promotion)
 - **OS**: Ubuntu 24.04 LTS
 - **Specifications**:
   - 1 vCPU
